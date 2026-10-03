@@ -1,0 +1,233 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+
+env:
+  GODOT_CPP_REF: master
+  SPOUT2_REF: master
+  SYPHON_URL: https://github.com/benoitlahoz/node-syphon/releases/download/v1.1.5/SyphonFramework.zip
+  BIN_DIR: demo/addons/spectator_stream_exporter/bin
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from README title
+        id: version
+        run: |
+          TITLE="$(head -n1 README.md | tr -d '\r')"
+          VERSION="$(echo "$TITLE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.]+)*$' || true)"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not find a version like 'v1.2.3' at the end of the README title: '$TITLE'"
+            exit 1
+          fi
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected $VERSION"
+
+  build-linux-windows:
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config git python3 python3-pip \
+            libpipewire-0.3-dev libvulkan-dev \
+            mingw-w64
+          python3 -m pip install --break-system-packages scons
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+      - name: Clone godot-cpp
+        id: gcpp
+        run: |
+          git clone --recursive --depth 1 --branch "$GODOT_CPP_REF" https://github.com/godotengine/godot-cpp.git
+          echo "sha=$(git -C godot-cpp rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Spout2 SDK
+        run: |
+          git clone --depth 1 --branch "$SPOUT2_REF" https://github.com/leadedge/Spout2.git "$RUNNER_TEMP/Spout2"
+          echo "SPOUT_SDK=$RUNNER_TEMP/Spout2" >> "$GITHUB_ENV"
+
+      - name: Restore SCons cache
+        uses: actions/cache@v4
+        with:
+          path: .scons-cache
+          key: scons-linux-${{ steps.gcpp.outputs.sha }}-${{ github.run_id }}
+          restore-keys: |
+            scons-linux-${{ steps.gcpp.outputs.sha }}-
+            scons-linux-
+
+      - name: Build
+        run: ./build-all.sh
+
+      - name: Verify expected binaries exist
+        run: |
+          missing=0
+          for f in \
+            libspectator_stream_exporter.linux.template_debug.x86_64.so \
+            libspectator_stream_exporter.linux.template_release.x86_64.so \
+            libspectator_stream_exporter.windows.template_debug.x86_64.dll \
+            libspectator_stream_exporter.windows.template_release.x86_64.dll
+          do
+            if [[ ! -f "$BIN_DIR/$f" ]]; then
+              echo "::error::Missing $f"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux-windows
+          path: |
+            ${{ env.BIN_DIR }}
+            !${{ env.BIN_DIR }}/**/*.exp
+            !${{ env.BIN_DIR }}/**/*.lib
+            !${{ env.BIN_DIR }}/**/*.pdb
+            !${{ env.BIN_DIR }}/**/*.ilk
+          if-no-files-found: error
+
+  build-macos:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install scons
+
+      - name: Clone godot-cpp
+        id: gcpp
+        run: |
+          git clone --recursive --depth 1 --branch "$GODOT_CPP_REF" https://github.com/godotengine/godot-cpp.git
+          echo "sha=$(git -C godot-cpp rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Syphon.framework
+        run: |
+          curl -fL -o "$RUNNER_TEMP/SyphonFramework.zip" "$SYPHON_URL"
+          unzip -o "$RUNNER_TEMP/SyphonFramework.zip" -d third_party/ -x '__MACOSX/*'
+          test -f third_party/Syphon.framework/Versions/A/Syphon
+          lipo -info third_party/Syphon.framework/Versions/A/Syphon
+
+      - name: Restore SCons cache
+        uses: actions/cache@v4
+        with:
+          path: .scons-cache
+          key: scons-macos-${{ steps.gcpp.outputs.sha }}-${{ github.run_id }}
+          restore-keys: |
+            scons-macos-${{ steps.gcpp.outputs.sha }}-
+            scons-macos-
+
+      - name: Build
+        run: |
+          JOBS="$(sysctl -n hw.ncpu)"
+          scons -j"$JOBS" platform=macos target=template_debug   arch=universal
+          scons -j"$JOBS" platform=macos target=template_release arch=universal
+
+      - name: Bundle Syphon and fix rpath
+        run: |
+          cp -R third_party/Syphon.framework "$BIN_DIR/"
+          for t in template_debug template_release; do
+            lib="$BIN_DIR/libspectator_stream_exporter.macos.$t.framework/libspectator_stream_exporter.macos.$t"
+            install_name_tool -add_rpath @loader_path/.. "$lib"
+            codesign -f -s - "$lib"
+            otool -L "$lib" | grep -q Syphon || { echo "::error::$lib does not link Syphon"; exit 1; }
+            otool -l "$lib" | grep -A2 LC_RPATH
+          done
+
+      - name: Archive macOS binaries
+        run: tar -czf "$RUNNER_TEMP/macos-bin.tar.gz" -C "$BIN_DIR" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-macos
+          path: ${{ runner.temp }}/macos-bin.tar.gz
+          if-no-files-found: error
+
+  package:
+    needs: [version, build-linux-windows, build-macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux-windows
+          path: ${{ env.BIN_DIR }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-macos
+          path: ${{ runner.temp }}/macos
+
+      - name: Merge macOS binaries
+        run: tar -xzf "$RUNNER_TEMP/macos/macos-bin.tar.gz" -C "$BIN_DIR"
+
+      - name: Verify all platforms are present
+        run: |
+          missing=0
+          for f in \
+            libspectator_stream_exporter.linux.template_debug.x86_64.so \
+            libspectator_stream_exporter.linux.template_release.x86_64.so \
+            libspectator_stream_exporter.windows.template_debug.x86_64.dll \
+            libspectator_stream_exporter.windows.template_release.x86_64.dll \
+            libspectator_stream_exporter.macos.template_debug.framework \
+            libspectator_stream_exporter.macos.template_release.framework \
+            Syphon.framework/Versions/A/Syphon
+          do
+            if [[ ! -e "$BIN_DIR/$f" ]]; then
+              echo "::error::Missing $f"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Package addon
+        run: |
+          mkdir -p dist
+          cd demo
+          zip -ry "../dist/SpectatorStreamExporter-$TAG.zip" addons/spectator_stream_exporter
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpectatorStreamExporter-${{ needs.version.outputs.tag }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Create release if this version isn't released yet
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping. Bump the version in the README title to publish a new one."
+            exit 0
+          fi
+
+          PRERELEASE=""
+          if [[ "$TAG" == *-* ]]; then PRERELEASE="--prerelease"; fi
+
+          gh release create "$TAG" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "SpectatorStreamExporter $TAG" \
+            --generate-notes \
+            $PRERELEASE

@@ -1,4 +1,4 @@
-# SpectatorStreamExporter
+# SpectatorStreamExporter v1.0.0
 
 A Godot 4 GDExtension that publishes the contents of a `SubViewport` as a live video source that other applications can pick up. OBS, Resolume, TouchDesigner, VJ tools, or a second process of your own can use it, with no window or screen capture involved.
 
@@ -16,7 +16,7 @@ A typical use is a spectator or broadcast camera: a second camera renders into a
 
 ## Contents
 
-- [SpectatorStreamExporter](#spectatorstreamexporter)
+- [SpectatorStreamExporter v1.0.0](#spectatorstreamexporter-v100)
   - [Contents](#contents)
   - [Requirements](#requirements)
   - [Installing into a project](#installing-into-a-project)
