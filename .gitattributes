@@ -1,0 +1,8 @@
+* text=auto
+
+# build-all.sh is run through WSL from build-all.bat, so it must stay LF on Windows checkouts
+*.sh       text eol=lf
+*.command  text eol=lf
+SConstruct text eol=lf
+*.bat      text eol=crlf
+*.cmd      text eol=crlf

@@ -1,0 +1,141 @@
+[gd_scene format=3 uid="uid://db88yproarw17"]
+
+[ext_resource type="Script" uid="uid://bs52iia0q5as5" path="res://main.gd" id="1_main"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_horizon_color = Color(0.66, 0.67, 0.69, 1)
+ground_horizon_color = Color(0.66, 0.67, 0.69, 1)
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(20, 20)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.22, 0.24, 0.27, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_center"]
+size = Vector3(1.5, 1.5, 1.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_orange"]
+albedo_color = Color(0.93, 0.47, 0.2, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_orbit"]
+radius = 0.6
+height = 1.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_blue"]
+albedo_color = Color(0.28, 0.55, 0.75, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_pillar"]
+top_radius = 0.4
+bottom_radius = 0.4
+height = 2.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_green"]
+albedo_color = Color(0.4, 0.75, 0.4, 1)
+
+[node name="Main" type="Node3D" unique_id=816100142]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=714599091]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=745226980]
+transform = Transform3D(0.866025, 0, -0.5, -0.383022, 0.642788, -0.663414, 0.321394, 0.766044, 0.55667, 0, 6, 0)
+shadow_enabled = true
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=1239521213]
+mesh = SubResource("PlaneMesh_floor")
+surface_material_override/0 = SubResource("StandardMaterial3D_floor")
+
+[node name="Props" type="Node3D" parent="." unique_id=393850572]
+
+[node name="Box" type="MeshInstance3D" parent="Props" unique_id=548060360]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
+mesh = SubResource("BoxMesh_center")
+surface_material_override/0 = SubResource("StandardMaterial3D_orange")
+
+[node name="Sphere" type="MeshInstance3D" parent="Props" unique_id=607600718]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.6, 0)
+mesh = SubResource("SphereMesh_orbit")
+surface_material_override/0 = SubResource("StandardMaterial3D_blue")
+
+[node name="Pillar" type="MeshInstance3D" parent="Props" unique_id=851212748]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 1.25, -1.5)
+mesh = SubResource("CylinderMesh_pillar")
+surface_material_override/0 = SubResource("StandardMaterial3D_green")
+
+[node name="PlayerCamera" type="Camera3D" parent="." unique_id=1817150139]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 9)
+current = true
+
+[node name="SpectatorViewport" type="SubViewport" parent="." unique_id=2086676915]
+size = Vector2i(1920, 1080)
+render_target_update_mode = 4
+
+[node name="SpectatorCamera" type="Camera3D" parent="SpectatorViewport" unique_id=639629368]
+transform = Transform3D(0.011992293, -0.3158927, 0.94871914, 0.0039927256, 0.9487949, 0.31586745, -0.9999201, 0, 0.0126395, 7, 3, 0)
+current = true
+fov = 60.0
+
+[node name="SpectatorStreamExporter" type="SpectatorStreamExporter" parent="." unique_id=1138847503]
+target_viewport = NodePath("../SpectatorViewport")
+stream_name = "SpectatorStreamDemo"
+target_fps = 60
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=1656394036]
+
+[node name="Status" type="Label" parent="UI" unique_id=1118939734]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 616.0
+offset_bottom = 216.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 16
+text = "Starting..."
+
+[node name="PreviewFrame" type="ColorRect" parent="UI" unique_id=1831684771]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -404.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 244.0
+grow_horizontal = 0
+color = Color(0, 0, 0, 0.6)
+
+[node name="Preview" type="TextureRect" parent="UI" unique_id=775722414]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -400.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 232.0
+grow_horizontal = 0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="PreviewLabel" type="Label" parent="UI" unique_id=720625990]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -400.0
+offset_top = 248.0
+offset_right = -16.0
+offset_bottom = 271.0
+grow_horizontal = 0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+text = "Spectator view (what receivers see)"
+horizontal_alignment = 1
