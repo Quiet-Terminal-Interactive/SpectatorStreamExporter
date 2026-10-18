@@ -250,8 +250,7 @@ void PipeWireBackend::stop() {
     m_negotiated = false;
 
     std::lock_guard<std::mutex> lock(m_pending_mutex);
-    m_pending_pixels.clear();
-    m_pending_available = false;
+    m_pending_queue.clear();
 }
 
 bool PipeWireBackend::push_frame(const ExportedFrame &frame) {
@@ -277,14 +276,24 @@ bool PipeWireBackend::push_frame(const ExportedFrame &frame) {
         const uint32_t width = m_negotiated_width;
         const uint32_t height = m_negotiated_height;
         const uint32_t stride = width * 4;
-        m_pending_pixels.resize((size_t)stride * height);
+
+        PendingFrame pf;
+        pf.pixels.resize((size_t)stride * height);
         convert_rgba(data.ptr(), frame.width, frame.height,
-                     m_pending_pixels.data(), width, height, m_negotiated_format);
-        m_pending_width = width;
-        m_pending_height = height;
-        m_pending_stride = stride;
-        m_pending_frame_index = frame.frame_index;
-        m_pending_available = true;
+                     pf.pixels.data(), width, height, m_negotiated_format);
+        pf.width = width;
+        pf.height = height;
+        pf.stride = stride;
+        pf.frame_index = frame.frame_index;
+
+        if (m_pending_queue.size() >= kPendingCapacity) {
+            if (debug_log_enabled()) {
+                UtilityFunctions::print(String("[PipeWireBackend] pending queue full, dropping frame ") +
+                                        String::num_uint64(m_pending_queue.front().frame_index));
+            }
+            m_pending_queue.pop_front();
+        }
+        m_pending_queue.push_back(std::move(pf));
     }
 
     if (m_loop) {
@@ -370,7 +379,7 @@ void PipeWireBackend::on_stream_param_changed(uint32_t id, const struct spa_pod 
         m_negotiated_format = info.format;
         m_negotiated_width = info.size.width;
         m_negotiated_height = info.size.height;
-        m_pending_available = false;
+        m_pending_queue.clear();
     }
 
     const int32_t stride = (int32_t)info.size.width * 4;
@@ -444,21 +453,22 @@ void PipeWireBackend::on_stream_process() {
     uint32_t frame_bytes = 0;
     {
         std::lock_guard<std::mutex> lock(m_pending_mutex);
-        had_frame = m_pending_available;
         d.chunk->offset = 0;
         d.chunk->stride = 0;
         d.chunk->size = 0;
-        if (m_pending_available) {
-            const uint32_t stride = m_pending_width * 4;
-            frame_bytes = stride * m_pending_height;
+        had_frame = !m_pending_queue.empty();
+        if (had_frame) {
+            const PendingFrame &pf = m_pending_queue.front();
+            frame_bytes = pf.stride * pf.height;
             if (d.maxsize < frame_bytes) {
                 too_small = true;
             } else {
-                std::memcpy(dst, m_pending_pixels.data(), frame_bytes);
+                std::memcpy(dst, pf.pixels.data(), frame_bytes);
                 d.chunk->offset = 0;
                 d.chunk->size = frame_bytes;
-                d.chunk->stride = (int32_t)stride;
+                d.chunk->stride = (int32_t)pf.stride;
             }
+            m_pending_queue.pop_front();
         }
     }
 

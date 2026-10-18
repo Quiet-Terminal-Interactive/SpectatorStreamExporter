@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -52,13 +53,18 @@ private:
     struct spa_hook m_stream_listener{};
     std::atomic<bool> m_started{false};
     std::atomic<bool> m_have_consumer{false};
+
+    struct PendingFrame {
+        std::vector<uint8_t> pixels;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t stride = 0;
+        uint64_t frame_index = 0;
+    };
+    static constexpr size_t kPendingCapacity = 3;
+
     std::mutex m_pending_mutex;
-    std::vector<uint8_t> m_pending_pixels;
-    uint32_t m_pending_width = 0;
-    uint32_t m_pending_height = 0;
-    uint32_t m_pending_stride = 0;
-    uint64_t m_pending_frame_index = 0;
-    bool m_pending_available = false;
+    std::deque<PendingFrame> m_pending_queue;
     uint32_t m_negotiated_format = 0;
     uint32_t m_negotiated_width = 0;
     uint32_t m_negotiated_height = 0;
